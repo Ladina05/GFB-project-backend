@@ -29,8 +29,9 @@ function simulerQuantitesConstantes({
   const d  = Math.round(parseFloat(delai));
   const ms = Math.round(parseFloat(marge_securite));
   const Ss = parseFloat(stock_securite);
-  // total mois entre commande et livraison
-  const delai_total = d + ms;
+  // marge de sécurité = anticipation du besoin,
+  // le délai de livraison reste strictement le délai d'approvisionnement.
+  const horizon_anticipation = d + ms;
 
   /* ── ÉTAPE 1 : stock avec rupture éventuelle (sans livraison) ── */
   const stock_rupture = new Array(n + 1).fill(0);
@@ -55,9 +56,10 @@ function simulerQuantitesConstantes({
     sr_temp[i] = sr_temp[i - 1] + livraisons[i] - consommations[i - 1];
   }
 
-  // Algorithme : on regarde chaque mois si le stock (rectifié) va descendre
-  // en dessous de Ss dans les prochains (delai_total) mois
-  // Si oui → on passe une commande maintenant, livraison dans (delai_total) mois
+  // Algorithme fidèle au cours :
+  // - on anticipe la rupture à l'horizon (d + marge)
+  // - si rupture attendue, on commande maintenant
+  // - la livraison arrive dans d mois (pas d + marge)
 
   // Pour reproduire EXACTEMENT le cours :
   // - La commande est passée au "début" d'un mois
@@ -71,14 +73,14 @@ function simulerQuantitesConstantes({
       sr_temp[k] = sr_temp[k - 1] + livraisons[k] - consommations[k - 1];
     }
 
-    // Stock projeté dans delai_total mois (après les livraisons déjà planifiées)
-    const mois_cible = i + delai_total;
+    // Stock projeté à l'horizon d'anticipation (d + marge)
+    const mois_cible = i + horizon_anticipation;
     const stock_a_cible = mois_cible <= n ? sr_temp[mois_cible] : sr_temp[n];
 
-    // Si le stock sera insuffisant et pas encore de livraison planifiée dans la zone
-    const mois_livraison = Math.min(i + delai_total, n + 1);
+    // Livraison au délai d'approvisionnement strict
+    const mois_livraison = Math.min(i + d, n + 1);
     
-    if (stock_a_cible < Ss && livraisons[mois_livraison] === 0) {
+    if (stock_a_cible <= Ss && livraisons[mois_livraison] === 0) {
       // Vérifier qu'on n'a pas déjà commandé pour ce creux
       const dejaCommande = commandes.some(
         (c) => c.mois_livraison_index === mois_livraison
@@ -120,106 +122,6 @@ function simulerQuantitesConstantes({
   };
 }
 
-/* ════════════════════════════════════════════════════════════════
-   §5.2 — PÉRIODES CONSTANTES
-   Algorithme exact du cours pages 59-60 :
-   - On commande tous les T mois (T = 12/N arrondi)
-   - Quantité = consommation des T prochains mois après livraison
-   - Commande passée d mois avant livraison
-   - Première livraison : au mois où le stock rupture passe sous Ss,
-     arrondi au multiple de T le plus proche
-   ════════════════════════════════════════════════════════════════ */
-function simulerPeriodesConstantes({
-  consommations,
-  stock_initial,
-  periode,
-  delai,
-  stock_securite = 0,
-}) {
-  const n  = consommations.length;
-  const SI = parseFloat(stock_initial);
-  const T  = Math.round(parseFloat(periode));
-  const d  = Math.round(parseFloat(delai));
-  const Ss = parseFloat(stock_securite);
-
-  /* ── ÉTAPE 1 : stock avec rupture éventuelle ── */
-  const stock_rupture = new Array(n + 1).fill(0);
-  stock_rupture[0] = SI;
-  for (let i = 1; i <= n; i++) {
-    stock_rupture[i] = stock_rupture[i - 1] - consommations[i - 1];
-  }
-
-  /* ── ÉTAPE 2 : trouver premier mois de rupture ── */
-  // Premier mois où stock_rupture <= Ss
-  let premier_besoin = n + 1;
-  for (let i = 1; i <= n; i++) {
-    if (stock_rupture[i] <= Ss) {
-      premier_besoin = i;
-      break;
-    }
-  }
-
-  // Premier mois de livraison = premier mois où on a besoin
-  // (en respectant le délai : commande passée avant)
-  // On prend le mois de besoin lui-même si delai permet
-  let premier_mois_liv = premier_besoin;
-  // La commande doit être passée d mois avant → début = premier_mois_liv - d
-  // Si premier_mois_liv - d < 0, on décale
-  if (premier_mois_liv - d < 0) {
-    premier_mois_liv = d;
-  }
-
-  /* ── ÉTAPE 3 : planifier livraisons à période fixe T ── */
-  const livraisons = new Array(n + 2).fill(0);
-  const commandes  = [];
-
-  for (let mois_liv = premier_mois_liv; mois_liv <= n + 1; mois_liv += T) {
-    // Quantité = consommation des T mois suivant la livraison
-    let qte = 0;
-    for (let j = mois_liv; j < mois_liv + T && j <= n; j++) {
-      qte += consommations[j - 1];
-    }
-    if (qte === 0) continue;
-
-    livraisons[mois_liv] = Math.round(qte * 100) / 100;
-
-    const mois_cmd = Math.max(0, mois_liv - d);
-    commandes.push({
-      mois_commande_index : mois_cmd,
-      mois_commande_label : `début ${MOIS_LABELS[mois_cmd] || `M${mois_cmd}`}`,
-      mois_livraison_index: mois_liv,
-      mois_livraison_label: `début ${MOIS_LABELS[mois_liv] || `M${mois_liv}`}`,
-      quantite            : Math.round(qte * 100) / 100,
-    });
-  }
-
-  /* ── ÉTAPE 4 : stock rectifié ── */
-  const sr = new Array(n + 1).fill(0);
-  sr[0] = SI;
-  for (let i = 1; i <= n; i++) {
-    sr[i] = sr[i - 1] + livraisons[i] - consommations[i - 1];
-  }
-
-  /* ── ÉTAPE 5 : tableau, synthèse, stats ── */
-  const tableau      = _construireTableau(n, SI, consommations, stock_rupture, livraisons, sr, commandes);
-  const synthese     = _construireSynthese(tableau);
-  const statistiques = _calculerStatistiques(tableau);
-
-  return {
-    methode: 'periodes_constantes',
-    tableau, synthese, statistiques, commandes,
-    livraisons_planifiees: commandes.map((c) => ({
-      mois_index: c.mois_livraison_index,
-      mois_label: MOIS_LABELS[c.mois_livraison_index] || `M${c.mois_livraison_index}`,
-      quantite  : c.quantite,
-    })),
-    resume: tableau,
-  };
-}
-
-/* ════════════════════════════════════════════════════════════════
-   HELPERS
-   ════════════════════════════════════════════════════════════════ */
 function _construireTableau(n, SI, consommations, stock_rupture, livraisons, sr, commandes) {
   const tableau = [];
 
@@ -307,6 +209,5 @@ function calculerStatistiques(tableau) {
 
 module.exports = {
   simulerQuantitesConstantes,
-  simulerPeriodesConstantes,
   calculerStatistiques,
 };

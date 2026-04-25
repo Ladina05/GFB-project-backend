@@ -8,8 +8,6 @@ const {
 } = require('../controllers/irregulierController');
 
 router.post('/quantites-constantes', simulerQtesConstantes);
-router.post('/periodes-constantes', simulerPeriodes);   // nom corrigé
-router.post('/comparer', comparerMethodes);
 router.get('/historique', getHistoriqueIrregulier);
 
 module.exports = router;
