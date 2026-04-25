@@ -4,11 +4,11 @@ require('dotenv').config();
 
 const articleRoutes = require('./src/routes/articleRoutes');
 const wilsonRoutes = require('./src/routes/wilsonRoutes');
+const irregulierRoutes = require('./src/routes/irregulierRoutes'); // NOUVEAU
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middlewares
 app.use(cors({
   origin: 'http://localhost:5173',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -17,23 +17,22 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
 app.use('/api/articles', articleRoutes);
 app.use('/api/wilson', wilsonRoutes);
+app.use('/api/irregulier', irregulierRoutes); // NOUVEAU
 
-// Route test
 app.get('/', (req, res) => {
   res.json({
     message: '🎓 API GFB - Modèle de Wilson',
-    version: '1.0.0',
+    version: '2.0.0',
     endpoints: {
       articles: '/api/articles',
       wilson: '/api/wilson',
+      irregulier: '/api/irregulier',
     },
   });
 });
 
-// Gestion erreurs globales
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ success: false, message: 'Erreur serveur interne' });
