@@ -1,295 +1,312 @@
 /**
- * Calcul consommation IRREGULIERE - Cours GFB Chapitre IV §5 et §5.2
- * 
- * Méthode 1 : Commandes à quantités constantes (dates variables)
- *   - On commande toujours Qe unités
- *   - La date de commande dépend du niveau du stock
- *   - Point de commande = (C_mois_suivant * marge_securite) + Ss
- * 
- * Méthode 2 : Commandes par périodes constantes (quantités variables)
- *   - On commande tous les T = 12/N mois
- *   - La quantité commandée couvre la consommation jusqu'à la prochaine livraison
+ * Calcul consommation IRREGULIERE - Cours GFB §5.1 et §5.2
+ * Algorithme fidèle aux tableaux pages 58-60
  */
 
-/**
- * Simule la gestion de stock avec QUANTITES CONSTANTES
- * @param {number[]} consommations - tableau des consommations mensuelles (12 mois)
- * @param {number} stock_initial - stock en début de période
- * @param {number} qe - quantité économique (lot fixe)
- * @param {number} delai - délai d'approvisionnement en mois
- * @param {number} marge_securite - marge de sécurité en mois
- * @param {number} stock_securite - stock de sécurité (Ss)
- */
+const MOIS_LABELS = ['D', 'J', 'F', 'M', 'A', 'M', 'J', 'Ju', 'A', 'S', 'O', 'N', 'D'];
+
+/* ════════════════════════════════════════════════════════════════
+   §5.1 — QUANTITÉS CONSTANTES
+   Algorithme exact du cours :
+   1) Calculer stock_rupture = stock sans aucune livraison
+   2) Parcourir mois par mois :
+      - Si stock_rupture[i] <= 0 ET pas encore de livraison planifiée
+        pour couvrir ce creux → passer commande
+      - Livraison arrive au mois (i + delai + marge)
+   3) Stock rectifié = recalcul avec toutes les livraisons planifiées
+   ════════════════════════════════════════════════════════════════ */
 function simulerQuantitesConstantes({
-    consommations,
-    stock_initial,
-    qe,
-    delai,
-    marge_securite = 1,
-    stock_securite = 0,
-  }) {
-    const mois = ['D', 'J', 'F', 'M', 'A', 'M', 'J', 'Ju', 'A', 'S', 'O', 'N', 'D'];
-    const n = consommations.length;
-  
-    // Résultats par mois
-    const tableau = [];
-    let stock_courant = parseFloat(stock_initial);
-    const commandes_en_cours = {}; // mois_livraison -> quantite
-  
-    // Stock avec rupture éventuelle
-    let stocks_rupture = [stock_courant];
-    const commandes = {}; // date_commande -> { quantite, date_livraison }
-    const livraisons = {}; // date_livraison -> quantite
-  
-    // On calcule d'abord les stocks avec rupture éventuelle
-    let s = stock_courant;
-    const stocks_bruts = [s];
-    for (let i = 0; i < n; i++) {
-      s -= consommations[i];
-      stocks_bruts.push(s);
-    }
-  
-    // Maintenant on détermine les commandes nécessaires
-    // Point de commande : stock qui déclenche une commande
-    // SCM = consommation pendant (delai + marge_securite) + Ss
-    const total_delai_marge = delai + marge_securite;
-  
-    // Reset
-    stock_courant = parseFloat(stock_initial);
-    const livraisons_planifiees = {}; // mois_index -> quantite
-  
-    // Simulation mois par mois
-    for (let i = 0; i <= n; i++) {
-      const mois_label = i === 0 ? 'D (initial)' : mois[i] || `M${i}`;
-  
-      // Réception des livraisons de ce mois
-      const livraison_recue = livraisons_planifiees[i] || 0;
-      const stock_apres_livraison = stock_courant + livraison_recue;
-  
-      // Consommation du mois
-      const conso = i < n ? consommations[i] : 0;
-      const stock_fin = stock_apres_livraison - conso;
-  
-      // Calculer consommation future pour le point de commande
-      let conso_future = 0;
-      for (let j = i; j < Math.min(i + Math.ceil(total_delai_marge), n); j++) {
-        conso_future += consommations[j];
-      }
-      const point_commande_dynamique = conso_future + stock_securite;
-  
-      // Faut-il commander ? Stock fin < point de commande
-      let commande_passee = null;
-      if (i < n && stock_fin < point_commande_dynamique) {
-        // Chercher quand livrer : i + delai + 1
-        const mois_livraison = i + Math.ceil(delai) + 1;
-        if (!livraisons_planifiees[mois_livraison]) {
-          livraisons_planifiees[mois_livraison] = qe;
-          commande_passee = {
-            date_commande: `début ${mois[i + 1] || `M${i+1}`}`,
-            date_livraison: `début ${mois[mois_livraison] || `M${mois_livraison}`}`,
-            quantite: qe,
-            mois_livraison,
-          };
-        }
-      }
-  
-      // Stock rectifié (avec les livraisons planifiées)
-      let stock_rectifie = stock_fin;
-      // Ajouter les livraisons futures déjà planifiées
-      for (let futur in livraisons_planifiees) {
-        if (parseInt(futur) > i) {
-          // déjà comptabilisé dans la simulation
-        }
-      }
-  
-      tableau.push({
-        mois_index: i,
-        mois_label,
-        stock_debut: Math.round(stock_courant * 100) / 100,
-        livraison_recue: Math.round(livraison_recue * 100) / 100,
-        consommation: i < n ? consommations[i] : 0,
-        stock_fin: Math.round(stock_fin * 100) / 100,
-        point_commande: Math.round(point_commande_dynamique * 100) / 100,
-        commande: commande_passee,
-        rupture: stock_fin < 0,
-      });
-  
-      stock_courant = stock_apres_livraison - conso;
-    }
-  
-    // Générer tableau résumé commandes/livraisons/sorties/stock
-    const resume = genererResumeStock(
-      consommations,
-      stock_initial,
-      livraisons_planifiees,
-      mois
-    );
-  
-    return {
-      methode: 'quantites_constantes',
-      parametres: { stock_initial, qe, delai, marge_securite, stock_securite },
-      tableau_detail: tableau,
-      resume,
-      livraisons_planifiees: Object.entries(livraisons_planifiees).map(([m, q]) => ({
-        mois_index: parseInt(m),
-        mois_label: mois[parseInt(m)] || `M${m}`,
-        quantite: q,
-      })),
-    };
+  consommations,
+  stock_initial,
+  qe,
+  delai,
+  marge_securite = 1,
+  stock_securite = 0,
+}) {
+  const n  = consommations.length;
+  const SI = parseFloat(stock_initial);
+  const QE = parseFloat(qe);
+  const d  = Math.round(parseFloat(delai));
+  const ms = Math.round(parseFloat(marge_securite));
+  const Ss = parseFloat(stock_securite);
+  // total mois entre commande et livraison
+  const delai_total = d + ms;
+
+  /* ── ÉTAPE 1 : stock avec rupture éventuelle (sans livraison) ── */
+  const stock_rupture = new Array(n + 1).fill(0);
+  stock_rupture[0] = SI;
+  for (let i = 1; i <= n; i++) {
+    stock_rupture[i] = stock_rupture[i - 1] - consommations[i - 1];
   }
+
+  /* ── ÉTAPE 2 : déterminer les commandes nécessaires ── */
+  // On parcourt stock_rupture. Dès qu'il va tomber à 0 ou en dessous,
+  // il faut qu'une livraison soit déjà arrivée.
+  // La commande est passée (delai_total) mois AVANT la livraison.
   
-  /**
-   * Simule la gestion de stock avec PERIODES CONSTANTES
-   * @param {number[]} consommations - tableau des consommations mensuelles
-   * @param {number} stock_initial - stock initial
-   * @param {number} periode - période de commande en mois (T = 12/N)
-   * @param {number} delai - délai d'approvisionnement en mois
-   * @param {number} stock_securite - stock de sécurité
-   */
-  function simulerPeriodesConstantes({
-    consommations,
-    stock_initial,
-    periode,
-    delai,
-    stock_securite = 0,
-  }) {
-    const mois_labels = ['D', 'J', 'F', 'M', 'A', 'M', 'J', 'Ju', 'A', 'S', 'O', 'N', 'D'];
-    const n = consommations.length;
-    const T = Math.round(periode); // période arrondie en mois entiers
+  const livraisons = new Array(n + 2).fill(0);
+  const commandes  = [];
+
+  // stock_rectifie_courant pour décider si une nouvelle commande est nécessaire
+  // On simule avec les livraisons déjà planifiées
+  const sr_temp = new Array(n + 2).fill(0);
+  sr_temp[0] = SI;
+  for (let i = 1; i <= n; i++) {
+    sr_temp[i] = sr_temp[i - 1] + livraisons[i] - consommations[i - 1];
+  }
+
+  // Algorithme : on regarde chaque mois si le stock (rectifié) va descendre
+  // en dessous de Ss dans les prochains (delai_total) mois
+  // Si oui → on passe une commande maintenant, livraison dans (delai_total) mois
+
+  // Pour reproduire EXACTEMENT le cours :
+  // - La commande est passée au "début" d'un mois
+  // - La livraison arrive au début du mois (commande + delai_total)
+  // On parcourt les mois 0..n et on vérifie si une commande est nécessaire
   
-    const livraisons_planifiees = {};
-    const commandes_planifiees = {};
-  
-    // Déterminer les dates de livraison (début Février, début Avril, etc.)
-    // Première livraison : mois 1 (début Février si D = mois 0)
-    // Commande correspondante : mois 1 - delai
+  for (let i = 0; i < n; i++) {
+    // Recalculer sr_temp avec les livraisons déjà planifiées
+    sr_temp[0] = SI;
+    for (let k = 1; k <= n; k++) {
+      sr_temp[k] = sr_temp[k - 1] + livraisons[k] - consommations[k - 1];
+    }
+
+    // Stock projeté dans delai_total mois (après les livraisons déjà planifiées)
+    const mois_cible = i + delai_total;
+    const stock_a_cible = mois_cible <= n ? sr_temp[mois_cible] : sr_temp[n];
+
+    // Si le stock sera insuffisant et pas encore de livraison planifiée dans la zone
+    const mois_livraison = Math.min(i + delai_total, n + 1);
     
-    let mois_premiere_livraison = 1; // début de l'exercice
-    
-    // Planifier toutes les livraisons
-    for (let liv = mois_premiere_livraison; liv <= n + 1; liv += T) {
-      const mois_commande = Math.max(0, liv - Math.ceil(delai));
-      
-      // Calculer la quantité nécessaire : couvrir T mois de consommation + stock sécu
-      let conso_a_couvrir = 0;
-      for (let j = liv; j < Math.min(liv + T, n + 1); j++) {
-        if (j <= n && consommations[j - 1] !== undefined) {
-          conso_a_couvrir += consommations[j - 1];
-        }
-      }
-      
-      // Quantité = consommation à couvrir (variable selon les prévisions)
-      const quantite = conso_a_couvrir > 0 ? conso_a_couvrir : 0;
-      
-      if (quantite > 0 || liv === mois_premiere_livraison) {
-        livraisons_planifiees[liv] = quantite > 0 ? quantite : 0;
-        commandes_planifiees[mois_commande] = {
-          quantite,
-          date_livraison: liv,
-          mois_livraison_label: mois_labels[liv] || `M${liv}`,
-        };
+    if (stock_a_cible < Ss && livraisons[mois_livraison] === 0) {
+      // Vérifier qu'on n'a pas déjà commandé pour ce creux
+      const dejaCommande = commandes.some(
+        (c) => c.mois_livraison_index === mois_livraison
+      );
+      if (!dejaCommande) {
+        livraisons[mois_livraison] = QE;
+        commandes.push({
+          mois_commande_index : i,
+          mois_commande_label : `début ${MOIS_LABELS[i] || `M${i}`}`,
+          mois_livraison_index: mois_livraison,
+          mois_livraison_label: `début ${MOIS_LABELS[mois_livraison] || `M${mois_livraison}`}`,
+          quantite            : QE,
+        });
       }
     }
-  
-    // Simulation avec les livraisons
-    const resume = genererResumeStock(
-      consommations,
-      stock_initial,
-      livraisons_planifiees,
-      mois_labels
-    );
-  
-    // Tableau détaillé avec commandes
-    const tableau_detail = resume.map((row, i) => {
-      const cmd = commandes_planifiees[row.mois_index];
-      return {
-        ...row,
-        commande: cmd ? {
-          date_commande: `début ${mois_labels[row.mois_index] || `M${row.mois_index}`}`,
-          date_livraison: `début ${cmd.mois_livraison_label}`,
-          quantite: cmd.quantite,
-        } : null,
-      };
-    });
-  
-    return {
-      methode: 'periodes_constantes',
-      parametres: { stock_initial, periode: T, delai, stock_securite },
-      tableau_detail,
-      resume,
-      livraisons_planifiees: Object.entries(livraisons_planifiees).map(([m, q]) => ({
-        mois_index: parseInt(m),
-        mois_label: mois_labels[parseInt(m)] || `M${m}`,
-        quantite: Math.round(q * 100) / 100,
-      })),
-      commandes: Object.entries(commandes_planifiees).map(([m, c]) => ({
-        mois_commande_index: parseInt(m),
-        mois_commande_label: mois_labels[parseInt(m)] || `M${m}`,
-        ...c,
-      })),
-    };
   }
-  
-  /**
-   * Génère le tableau résumé : commandes / livraisons / sorties / stock
-   */
-  function genererResumeStock(consommations, stock_initial, livraisons_planifiees, mois_labels) {
-    const n = consommations.length;
-    const tableau = [];
-    let stock = parseFloat(stock_initial);
-  
-    // Mois 0 = Décembre initial (stock initial seulement)
-    tableau.push({
-      mois_index: 0,
-      mois_label: mois_labels[0] || 'D',
-      commandes: null,
-      livraisons: null,
-      sorties: null,
-      stock: Math.round(stock * 100) / 100,
-    });
-  
-    for (let i = 1; i <= n; i++) {
-      const livraison = livraisons_planifiees[i] || 0;
-      stock += livraison;
-      const conso = consommations[i - 1] || 0;
-      stock -= conso;
-  
-      tableau.push({
-        mois_index: i,
-        mois_label: mois_labels[i] || `M${i}`,
-        commandes: null, // rempli après
-        livraisons: livraison > 0 ? Math.round(livraison * 100) / 100 : null,
-        sorties: conso > 0 ? conso : null,
-        stock: Math.round(stock * 100) / 100,
-        rupture: stock < 0,
-      });
-    }
-  
-    return tableau;
+
+  /* ── ÉTAPE 3 : stock rectifié final ── */
+  const sr = new Array(n + 1).fill(0);
+  sr[0] = SI;
+  for (let i = 1; i <= n; i++) {
+    sr[i] = sr[i - 1] + livraisons[i] - consommations[i - 1];
   }
-  
-  /**
-   * Calcule les statistiques de la simulation
-   */
-  function calculerStatistiques(resume) {
-    const stocks = resume.map((r) => r.stock).filter((s) => s !== null);
-    const ruptures = resume.filter((r) => r.rupture).length;
-    const livraisons = resume.filter((r) => r.livraisons).length;
-    const stock_moyen = stocks.reduce((a, b) => a + b, 0) / stocks.length;
-    const stock_min = Math.min(...stocks);
-    const stock_max = Math.max(...stocks);
-  
-    return {
-      stock_moyen: Math.round(stock_moyen * 100) / 100,
-      stock_min: Math.round(stock_min * 100) / 100,
-      stock_max: Math.round(stock_max * 100) / 100,
-      nb_ruptures: ruptures,
-      nb_livraisons: livraisons,
-    };
-  }
-  
-  module.exports = {
-    simulerQuantitesConstantes,
-    simulerPeriodesConstantes,
-    calculerStatistiques,
+
+  /* ── ÉTAPE 4 : tableau, synthèse, stats ── */
+  const tableau      = _construireTableau(n, SI, consommations, stock_rupture, livraisons, sr, commandes);
+  const synthese     = _construireSynthese(tableau);
+  const statistiques = _calculerStatistiques(tableau);
+
+  return {
+    methode: 'quantites_constantes',
+    tableau, synthese, statistiques, commandes,
+    livraisons_planifiees: commandes.map((c) => ({
+      mois_index: c.mois_livraison_index,
+      mois_label: MOIS_LABELS[c.mois_livraison_index] || `M${c.mois_livraison_index}`,
+      quantite  : c.quantite,
+    })),
+    resume: tableau,
   };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   §5.2 — PÉRIODES CONSTANTES
+   Algorithme exact du cours pages 59-60 :
+   - On commande tous les T mois (T = 12/N arrondi)
+   - Quantité = consommation des T prochains mois après livraison
+   - Commande passée d mois avant livraison
+   - Première livraison : au mois où le stock rupture passe sous Ss,
+     arrondi au multiple de T le plus proche
+   ════════════════════════════════════════════════════════════════ */
+function simulerPeriodesConstantes({
+  consommations,
+  stock_initial,
+  periode,
+  delai,
+  stock_securite = 0,
+}) {
+  const n  = consommations.length;
+  const SI = parseFloat(stock_initial);
+  const T  = Math.round(parseFloat(periode));
+  const d  = Math.round(parseFloat(delai));
+  const Ss = parseFloat(stock_securite);
+
+  /* ── ÉTAPE 1 : stock avec rupture éventuelle ── */
+  const stock_rupture = new Array(n + 1).fill(0);
+  stock_rupture[0] = SI;
+  for (let i = 1; i <= n; i++) {
+    stock_rupture[i] = stock_rupture[i - 1] - consommations[i - 1];
+  }
+
+  /* ── ÉTAPE 2 : trouver premier mois de rupture ── */
+  // Premier mois où stock_rupture <= Ss
+  let premier_besoin = n + 1;
+  for (let i = 1; i <= n; i++) {
+    if (stock_rupture[i] <= Ss) {
+      premier_besoin = i;
+      break;
+    }
+  }
+
+  // Premier mois de livraison = premier mois où on a besoin
+  // (en respectant le délai : commande passée avant)
+  // On prend le mois de besoin lui-même si delai permet
+  let premier_mois_liv = premier_besoin;
+  // La commande doit être passée d mois avant → début = premier_mois_liv - d
+  // Si premier_mois_liv - d < 0, on décale
+  if (premier_mois_liv - d < 0) {
+    premier_mois_liv = d;
+  }
+
+  /* ── ÉTAPE 3 : planifier livraisons à période fixe T ── */
+  const livraisons = new Array(n + 2).fill(0);
+  const commandes  = [];
+
+  for (let mois_liv = premier_mois_liv; mois_liv <= n + 1; mois_liv += T) {
+    // Quantité = consommation des T mois suivant la livraison
+    let qte = 0;
+    for (let j = mois_liv; j < mois_liv + T && j <= n; j++) {
+      qte += consommations[j - 1];
+    }
+    if (qte === 0) continue;
+
+    livraisons[mois_liv] = Math.round(qte * 100) / 100;
+
+    const mois_cmd = Math.max(0, mois_liv - d);
+    commandes.push({
+      mois_commande_index : mois_cmd,
+      mois_commande_label : `début ${MOIS_LABELS[mois_cmd] || `M${mois_cmd}`}`,
+      mois_livraison_index: mois_liv,
+      mois_livraison_label: `début ${MOIS_LABELS[mois_liv] || `M${mois_liv}`}`,
+      quantite            : Math.round(qte * 100) / 100,
+    });
+  }
+
+  /* ── ÉTAPE 4 : stock rectifié ── */
+  const sr = new Array(n + 1).fill(0);
+  sr[0] = SI;
+  for (let i = 1; i <= n; i++) {
+    sr[i] = sr[i - 1] + livraisons[i] - consommations[i - 1];
+  }
+
+  /* ── ÉTAPE 5 : tableau, synthèse, stats ── */
+  const tableau      = _construireTableau(n, SI, consommations, stock_rupture, livraisons, sr, commandes);
+  const synthese     = _construireSynthese(tableau);
+  const statistiques = _calculerStatistiques(tableau);
+
+  return {
+    methode: 'periodes_constantes',
+    tableau, synthese, statistiques, commandes,
+    livraisons_planifiees: commandes.map((c) => ({
+      mois_index: c.mois_livraison_index,
+      mois_label: MOIS_LABELS[c.mois_livraison_index] || `M${c.mois_livraison_index}`,
+      quantite  : c.quantite,
+    })),
+    resume: tableau,
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HELPERS
+   ════════════════════════════════════════════════════════════════ */
+function _construireTableau(n, SI, consommations, stock_rupture, livraisons, sr, commandes) {
+  const tableau = [];
+
+  // Ligne D (stock initial)
+  tableau.push({
+    mois_index   : 0,
+    mois_label   : MOIS_LABELS[0],
+    consommation : null,
+    stock_rupture: Math.round(SI * 100) / 100,
+    livraison    : null,
+    stock_rectifie: Math.round(SI * 100) / 100,
+    commande     : commandes.find((c) => c.mois_commande_index === 0) || null,
+  });
+
+  // Lignes J → D
+  for (let i = 1; i <= n; i++) {
+    const lv  = livraisons[i] > 0 ? Math.round(livraisons[i] * 100) / 100 : null;
+    const cmd = commandes.find((c) => c.mois_commande_index === i) || null;
+
+    tableau.push({
+      mois_index   : i,
+      mois_label   : MOIS_LABELS[i] || `M${i}`,
+      consommation : consommations[i - 1],
+      stock_rupture: Math.round(stock_rupture[i] * 100) / 100,
+      livraison    : lv,
+      stock_rectifie: Math.round(sr[i] * 100) / 100,
+      commande     : cmd,
+    });
+  }
+
+  return tableau;
+}
+
+function _construireSynthese(tableau) {
+  const commandes_row  = {};
+  const livraisons_row = {};
+  const sorties_row    = {};
+  const stock_row      = {};
+
+  tableau.forEach((row) => {
+    const k = row.mois_index;
+    if (row.commande) commandes_row[k] = row.commande.quantite;
+    if (row.livraison) livraisons_row[k] = row.livraison;
+    if (row.consommation !== null && row.consommation !== undefined)
+      sorties_row[k] = row.consommation;
+    stock_row[k] = row.stock_rectifie;
+  });
+
+  return {
+    mois      : tableau.map((r) => r.mois_label),
+    commandes : commandes_row,
+    livraisons: livraisons_row,
+    sorties   : sorties_row,
+    stock     : stock_row,
+  };
+}
+
+function _calculerStatistiques(tableau) {
+  if (!tableau || !Array.isArray(tableau) || tableau.length === 0) {
+    return { stock_moyen: 0, stock_min: 0, stock_max: 0, nb_ruptures: 0, nb_livraisons: 0 };
+  }
+
+  const lignes = tableau.slice(1);
+  if (lignes.length === 0) {
+    return { stock_moyen: 0, stock_min: 0, stock_max: 0, nb_ruptures: 0, nb_livraisons: 0 };
+  }
+
+  const stocks        = lignes.map((r) => r.stock_rectifie);
+  const nb_ruptures   = stocks.filter((s) => s < 0).length;
+  const nb_livraisons = lignes.filter((r) => r.livraison !== null).length;
+  const stock_moyen   = stocks.reduce((a, b) => a + b, 0) / stocks.length;
+
+  return {
+    stock_moyen  : Math.round(stock_moyen * 100) / 100,
+    stock_min    : Math.round(Math.min(...stocks) * 100) / 100,
+    stock_max    : Math.round(Math.max(...stocks) * 100) / 100,
+    nb_ruptures,
+    nb_livraisons,
+  };
+}
+
+function calculerStatistiques(tableau) {
+  return _calculerStatistiques(tableau);
+}
+
+module.exports = {
+  simulerQuantitesConstantes,
+  simulerPeriodesConstantes,
+  calculerStatistiques,
+};
