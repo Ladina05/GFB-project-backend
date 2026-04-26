@@ -1,7 +1,6 @@
 const pool = require('../config/db');
 const {
   simulerQuantitesConstantes,
-  simulerPeriodesConstantes: calcSimulerPeriodesConstantes, // RENOMMAGE pour éviter le conflit
   calculerStatistiques,
 } = require('../utils/irregulierCalculator');
 const { calculerWilson } = require('../utils/wilsonCalculator');
@@ -128,7 +127,90 @@ const getHistoriqueIrregulier = async (req, res) => {
   }
 };
 
+/**
+ * Détail d'une simulation irrégulière
+ */
+const getDetailIrregulier = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT si.*, a.nom as article_nom
+       FROM simulations_irregulieres si
+       LEFT JOIN articles a ON si.article_id = a.id
+       WHERE si.id = $1`,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Simulation irrégulière non trouvée' });
+    }
+
+    const row = result.rows[0];
+
+    let consommations = [];
+    try {
+      consommations = Array.isArray(row.consommations)
+        ? row.consommations.map(Number)
+        : JSON.parse(row.consommations || '[]').map(Number);
+    } catch (_) {
+      consommations = [];
+    }
+
+    const consommation_annuelle = consommations.reduce((a, b) => a + (parseFloat(b) || 0), 0);
+
+    const wilson = calculerWilson({
+      consommation_annuelle,
+      prix_unitaire: row.prix_unitaire,
+      cout_passation: row.cout_passation,
+      taux_possession: row.taux_possession,
+      stock_initial: row.stock_initial || 0,
+      delai_approvisionnement: row.delai_approvisionnement || 0,
+      stock_securite: row.stock_securite || 0,
+    });
+
+    let simulation_detail = null;
+    if (row.methode === 'quantites_constantes' && consommations.length > 0) {
+      simulation_detail = simulerQuantitesConstantes({
+        consommations,
+        stock_initial: parseFloat(row.stock_initial || 0),
+        qe: parseFloat(row.qe_utilisee || 0),
+        delai: parseFloat(row.delai_approvisionnement || 0),
+        marge_securite: parseFloat(row.marge_securite || 1),
+        stock_securite: parseFloat(row.stock_securite || 0),
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...row,
+        consommations,
+        consommation_annuelle,
+        wilson_base: wilson,
+        simulation_detail,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Supprimer une simulation irrégulière
+ */
+const deleteIrregulier = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM simulations_irregulieres WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Simulation irrégulière supprimée' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   simulerQtesConstantes,
   getHistoriqueIrregulier,
+  getDetailIrregulier,
+  deleteIrregulier,
 };

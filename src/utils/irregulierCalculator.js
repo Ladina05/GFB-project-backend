@@ -33,12 +33,11 @@ function simulerQuantitesConstantes({
   // le délai de livraison reste strictement le délai d'approvisionnement.
   const horizon_anticipation = d + ms;
 
-  /* ── ÉTAPE 1 : stock avec rupture éventuelle (sans livraison) ── */
+  /* ── ÉTAPE 1 : init colonne "stock avec rupture éventuelle" ── */
+  // Cette colonne est calculée après planification des livraisons (étape 3),
+  // car elle représente le stock "avant livraison du mois".
   const stock_rupture = new Array(n + 1).fill(0);
   stock_rupture[0] = SI;
-  for (let i = 1; i <= n; i++) {
-    stock_rupture[i] = stock_rupture[i - 1] - consommations[i - 1];
-  }
 
   /* ── ÉTAPE 2 : déterminer les commandes nécessaires ── */
   // On parcourt stock_rupture. Dès qu'il va tomber à 0 ou en dessous,
@@ -103,6 +102,13 @@ function simulerQuantitesConstantes({
   sr[0] = SI;
   for (let i = 1; i <= n; i++) {
     sr[i] = sr[i - 1] + livraisons[i] - consommations[i - 1];
+  }
+
+  // Colonne cours : stock disponible en fin de mois en l'absence
+  // de la livraison du mois courant ("rupture éventuelle").
+  // Concrètement : stock rectifié du mois précédent - consommation du mois.
+  for (let i = 1; i <= n; i++) {
+    stock_rupture[i] = sr[i - 1] - consommations[i - 1];
   }
 
   /* ── ÉTAPE 4 : tableau, synthèse, stats ── */
